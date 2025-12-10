@@ -3,16 +3,16 @@
 ## 项目简介
 - 通用的 AI CLI 工作区，用于统一管理 Codex、Gemini CLI、Claude Code 等智能体工具，以及日常文档创作任务。
 - 基于 `uv` 管理 Python 依赖，内置 LangChain、LangGraph 等现代化 Agent 组件，便于快速扩展。
-- 提供 `tiangong-workspace` 命令行应用：可查看环境信息、执行文档工作流、触发 Tavily 联网检索、调用 Crossref 文献元数据、运行自主工作流智能体。
+- 提供 `tiangong-workspace` 命令行应用：可查看环境信息、执行文档工作流、触发 Tavily 联网检索、调用 Crossref/OpenAlex 文献元数据、运行自主工作流智能体。
 - 集成 Tavily MCP 搜索 + LangGraph 自主 Agent，支持联网调研、Shell/Python 执行、LangChain 工作流协同，能够灵活处理未预设的复杂任务。
 - 跨平台安装脚本覆盖 Ubuntu、macOS 与 Windows，可按需安装 Node.js、Pandoc/MiKTeX 等可选组件。
 
 ## 目录结构
 - `install_*.sh` / `install_windows.ps1`：一键安装脚本。
 - `src/tiangong_ai_workspace/`：工作区 Python 包与 CLI 入口。
-  - `cli.py`：Typer CLI，包含 `docs`、`agents`、`research`、`crossref` 与 `mcp` 子命令。
+  - `cli.py`：Typer CLI，包含 `docs`、`agents`、`research`、`crossref`、`openalex` 与 `mcp` 子命令。
   - `agents/`：LangGraph 文档工作流 (`workflows.py`)、LangGraph/DeepAgents 双引擎自主智能体 (`deep_agent.py`)、具备 Pydantic 入参与输出校验的 LangChain Tool 封装 (`tools.py`)。
-  - `tooling/`：响应封装、工作区配置加载 (`config.py`)、工具注册表、模型路由器 (`llm.py`)、统一 Tool Schema (`tool_schemas.py`)、Tavily MCP 搜索客户端、Crossref Works API 客户端 (`crossref.py`)、Dify 知识库客户端 (`dify.py`)、Neo4j 图数据库客户端 (`neo4j.py`) 以及带审计的 Shell/Python 执行器。
+  - `tooling/`：响应封装、工作区配置加载 (`config.py`)、工具注册表、模型路由器 (`llm.py`)、统一 Tool Schema (`tool_schemas.py`)、Tavily MCP 搜索客户端、Crossref Works API 客户端 (`crossref.py`)、OpenAlex Works/Cited-by 客户端 (`openalex.py`)、Dify 知识库客户端 (`dify.py`)、Neo4j 图数据库客户端 (`neo4j.py`) 以及带审计的 Shell/Python 执行器。
   - `templates/`：不同文档类型的结构提示。
   - `mcp_client.py`：同步封装的 MCP 客户端。
   - `secrets.py`：凭证加载逻辑。
@@ -62,6 +62,8 @@ uv run tiangong-workspace tools --catalog   # 查看内部工作流与工具注�
 uv run tiangong-workspace agents list       # 查看自主智能体与运行时代码执行器
 uv run tiangong-workspace knowledge retrieve "查询关键词"  # 直接检索 Dify 知识库
 uv run tiangong-workspace crossref journal-works "1234-5678" --query "LLM"  # 查询 Crossref 期刊文献
+uv run tiangong-workspace openalex work "10.1016/S0921-3449(00)00060-4"      # 获取 OpenAlex 元数据
+uv run tiangong-workspace openalex cited-by "W2072484418" --from 2020-01-01 --to 2021-01-01  # 时间窗引用统计
 uv run tiangong-workspace embeddings generate "示例文本"   # 调用 OpenAI 兼容 embedding 服务
 ```
 
@@ -84,12 +86,13 @@ uv run tiangong-workspace agents run "统计 data.csv 中的指标并绘图" --n
 - Python 执行器：在共享解释器中运行脚本，可直接使用 `pandas`、`matplotlib`、`seaborn` 等依赖。
 - Tavily 搜索：通过 MCP 获取实时互联网情报。
 - Crossref 文献：调用 Crossref `/journals/{issn}/works` 接口查询指定期刊文章。
+- OpenAlex 文献：按 DOI 获取元数据，或按时间窗口统计引用（cites + from/to_publication_date）。
 - Dify 知识库：在本地 HTTP 直连指定 Dify 数据集以获取企业知识，无需 MCP。
 - LangGraph 文档工作流：生成报告、计划书、专利交底书、项目申报书。
 - Neo4j 图数据库：通过 `neo4j` 官方驱动执行 Cypher，并支持 create/read/update/delete 全流程操作。
 - OpenAI 兼容向量嵌入：调用本地或远程 OpenAI API 生成 embedding，默认返回结构化 JSON，可直接写入向量工作流。
 
-可使用 `--no-shell`、`--no-python`、`--no-tavily`、`--no-dify`、`--no-crossref`、`--no-document` 分别关闭对应工具；`--engine langgraph|deepagents` 切换运行后端；`--system-prompt` 和 `--model` 可自定义智能体设定。
+可使用 `--no-shell`、`--no-python`、`--no-tavily`、`--no-dify`、`--no-crossref`、`--no-openalex`、`--no-document` 分别关闭对应工具；`--engine langgraph|deepagents` 切换运行后端；`--system-prompt` 和 `--model` 可自定义智能体设定。
 
 ## 文档工作流
 `docs` 子命令调用 LangGraph 工作流（检索→大纲→草稿→AI 审核[可选]），支持报告、计划书、专利交底书、项目申报书等：
@@ -135,6 +138,23 @@ uv run tiangong-workspace crossref journal-works "1234-5678" \
 ```
 
 `--filters` 接受 JSON 对象/数组或直接传入 Crossref filter 字符串（如 `from-pub-date:2020-01-01,until-pub-date:2020-12-31`），`--select` 支持 JSON 数组或逗号分隔字段。推荐传入 `--mailto` 以符合 Crossref 最佳实践。
+
+## OpenAlex 文献/引用
+`openalex` 子命令用于快速获取元数据与引用统计：
+
+```bash
+# 按 DOI 查元数据
+uv run tiangong-workspace openalex work "10.1016/S0921-3449(00)00060-4" --mailto me@example.com
+
+# 统计时间窗口内的引用（需 OpenAlex work_id，如 W2072484418）
+uv run tiangong-workspace openalex cited-by "W2072484418" \
+  --from 2000-09-01 \
+  --to 2002-09-01 \
+  --per-page 200 \
+  --cursor "*"
+```
+
+`cited-by` 使用 `cites:work_id` + `from/to_publication_date` 过滤引用方的发表日期，`meta.count` 即为窗口内被引次数；可用 cursor 深翻页获取完整结果。
 
 ## 知识库检索
 `knowledge` 子命令直接通过 HTTP 访问 Dify 知识库，无需再配置 `dify_knowledge_base_mcp`：

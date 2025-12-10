@@ -15,6 +15,10 @@ from pydantic import BaseModel, Field
 __all__ = [
     "CrossrefJournalWorksInput",
     "CrossrefQueryOutput",
+    "OpenAlexWorkLookupInput",
+    "OpenAlexWorkLookupOutput",
+    "OpenAlexCitedByInput",
+    "OpenAlexCitedByOutput",
     "DocumentToolInput",
     "DocumentToolOutput",
     "DifyKnowledgeBaseInput",
@@ -113,6 +117,37 @@ class CrossrefJournalWorksInput(BaseModel):
 
 
 class CrossrefQueryOutput(BaseModel):
+    status: Literal["success", "error"]
+    data: Mapping[str, Any] | None = None
+    message: str | None = None
+
+
+class OpenAlexWorkLookupInput(BaseModel):
+    doi: str = Field(..., description="DOI to look up in OpenAlex.")
+    mailto: str | None = Field(default=None, description="Optional contact email forwarded to OpenAlex.")
+
+
+class OpenAlexWorkLookupOutput(BaseModel):
+    status: Literal["success", "error"]
+    data: Mapping[str, Any] | None = None
+    message: str | None = None
+
+
+class OpenAlexCitedByInput(BaseModel):
+    work_id: str = Field(..., description="OpenAlex work ID (e.g. W2072484418).")
+    from_publication_date: str | None = Field(default=None, description="Filter citing works published on/after this date (YYYY-MM-DD).")
+    to_publication_date: str | None = Field(default=None, description="Filter citing works published on/before this date (YYYY-MM-DD).")
+    per_page: int | None = Field(
+        default=200,
+        ge=1,
+        le=200,
+        description="Number of records per page (OpenAlex max 200).",
+    )
+    cursor: str | None = Field(default=None, description="Cursor token for deep pagination.")
+    mailto: str | None = Field(default=None, description="Optional contact email forwarded to OpenAlex.")
+
+
+class OpenAlexCitedByOutput(BaseModel):
     status: Literal["success", "error"]
     data: Mapping[str, Any] | None = None
     message: str | None = None
@@ -252,6 +287,8 @@ _DESCRIPTOR_SCHEMAS: Mapping[str, _SchemaPair] = {
     "knowledge.dify": _SchemaPair(DifyKnowledgeBaseInput, DifyKnowledgeBaseOutput),
     "database.neo4j": _SchemaPair(Neo4jCommandInput, Neo4jCommandOutput),
     "research.crossref_journal_works": _SchemaPair(CrossrefJournalWorksInput, CrossrefQueryOutput),
+    "research.openalex_work": _SchemaPair(OpenAlexWorkLookupInput, OpenAlexWorkLookupOutput),
+    "research.openalex_cited_by": _SchemaPair(OpenAlexCitedByInput, OpenAlexCitedByOutput),
     "docs.report": _SchemaPair(DocumentToolInput, DocumentToolOutput),
     "docs.patent_disclosure": _SchemaPair(DocumentToolInput, DocumentToolOutput),
     "docs.plan": _SchemaPair(DocumentToolInput, DocumentToolOutput),

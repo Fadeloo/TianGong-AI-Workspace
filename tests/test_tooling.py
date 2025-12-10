@@ -15,6 +15,7 @@ from tiangong_ai_workspace.tooling import PythonExecutor, ShellExecutor, Workspa
 from tiangong_ai_workspace.tooling.crossref import CrossrefClient, CrossrefClientError
 from tiangong_ai_workspace.tooling.dify import DifyKnowledgeBaseClient, DifyKnowledgeBaseError
 from tiangong_ai_workspace.tooling.neo4j import Neo4jClient, Neo4jToolError
+from tiangong_ai_workspace.tooling.openalex import OpenAlexClient
 from tiangong_ai_workspace.tooling.tavily import TavilySearchClient, TavilySearchError
 
 
@@ -35,6 +36,8 @@ def test_tool_registry_contains_core_workflows() -> None:
     assert "runtime.python" in registry
     assert "embeddings.openai_compatible" in registry
     assert "research.crossref_journal_works" in registry
+    assert "research.openalex_work" in registry
+    assert "research.openalex_cited_by" in registry
 
 
 def test_tavily_client_missing_service_raises() -> None:
@@ -154,6 +157,62 @@ def test_crossref_client_rejects_offset_and_cursor() -> None:
     client = CrossrefClient()
     with pytest.raises(CrossrefClientError):
         client.list_journal_works("1234-5678", offset=1, cursor="*")
+
+
+def test_openalex_client_work_by_doi(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = OpenAlexClient(timeout=1.0)
+    captured: dict[str, Any] = {}
+
+    class _StubResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> Mapping[str, Any]:
+            return {"id": "https://openalex.org/W123"}
+
+    def fake_get(self, url: str, *, params: Mapping[str, Any]):
+        captured["url"] = url
+        captured["params"] = params
+        return _StubResponse()
+
+    monkeypatch.setattr(OpenAlexClient, "_get", fake_get, raising=False)
+    result = client.work_by_doi("10.1234/example", mailto="a@b.com")
+    assert "example" in captured["url"]
+    assert captured["params"]["mailto"] == "a@b.com"
+    assert result["result"]["id"] == "https://openalex.org/W123"
+
+
+def test_openalex_client_cited_by(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = OpenAlexClient(timeout=1.0)
+    captured: dict[str, Any] = {}
+
+    class _StubResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> Mapping[str, Any]:
+            return {"meta": {"count": 2}, "results": [{"id": 1}]}
+
+    def fake_get(self, url: str, *, params: Mapping[str, Any]):
+        captured["url"] = url
+        captured["params"] = params
+        return _StubResponse()
+
+    monkeypatch.setattr(OpenAlexClient, "_get", fake_get, raising=False)
+    result = client.cited_by(
+        "W123",
+        from_publication_date="2020-01-01",
+        to_publication_date="2021-01-01",
+        per_page=100,
+        cursor="*",
+        mailto="a@b.com",
+    )
+    assert "cites:W123" in captured["params"]["filter"]
+    assert "from_publication_date:2020-01-01" in captured["params"]["filter"]
+    assert captured["params"]["per-page"] == 100
+    assert captured["params"]["cursor"] == "*"
+    assert captured["params"]["mailto"] == "a@b.com"
+    assert result["total_count"] == 2
 
 
 def test_shell_executor_runs_command() -> None:

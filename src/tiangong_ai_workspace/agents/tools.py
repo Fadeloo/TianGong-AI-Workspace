@@ -13,6 +13,7 @@ from ..tooling.crossref import CrossrefClient, CrossrefClientError
 from ..tooling.dify import DifyKnowledgeBaseClient, DifyKnowledgeBaseError
 from ..tooling.executors import PythonExecutor, ShellExecutor
 from ..tooling.neo4j import Neo4jClient, Neo4jToolError
+from ..tooling.openalex import OpenAlexClient, OpenAlexClientError
 from ..tooling.tavily import TavilySearchClient, TavilySearchError
 from ..tooling.tool_schemas import (
     CrossrefJournalWorksInput,
@@ -25,6 +26,10 @@ from ..tooling.tool_schemas import (
     MetadataFilterGroupInput,
     Neo4jCommandInput,
     Neo4jCommandOutput,
+    OpenAlexCitedByInput,
+    OpenAlexCitedByOutput,
+    OpenAlexWorkLookupInput,
+    OpenAlexWorkLookupOutput,
     PythonCommandInput,
     PythonCommandOutput,
     RetrievalModelInput,
@@ -38,6 +43,7 @@ from .workflows import DocumentWorkflowConfig, DocumentWorkflowType, run_documen
 __all__ = [
     "create_document_tool",
     "create_crossref_tool",
+    "create_openalex_tools",
     "create_dify_knowledge_tool",
     "create_neo4j_tool",
     "create_python_tool",
@@ -244,3 +250,50 @@ def create_crossref_tool(client: Optional[CrossrefClient] = None, *, name: str =
         return payload.model_dump()
 
     return crossref_journal_works
+
+
+def create_openalex_tools(client: Optional[OpenAlexClient] = None, *, work_tool_name: str = "openalex_work", cited_by_tool_name: str = "openalex_cited_by") -> tuple[Any, Any]:
+    openalex_client = client or OpenAlexClient()
+
+    @tool(work_tool_name, args_schema=OpenAlexWorkLookupInput)
+    def openalex_work(doi: str, mailto: str | None = None) -> Mapping[str, Any]:
+        """Fetch a work record from OpenAlex by DOI."""
+
+        try:
+            normalized_doi = doi[doi.lower().find("10.") :] if "10." in doi.lower() else doi
+            result = openalex_client.work_by_doi(normalized_doi, mailto=mailto)
+        except OpenAlexClientError as exc:
+            payload = OpenAlexWorkLookupOutput(status="error", message=str(exc))
+            return payload.model_dump()
+
+        payload = OpenAlexWorkLookupOutput(status="success", data=result)
+        return payload.model_dump()
+
+    @tool(cited_by_tool_name, args_schema=OpenAlexCitedByInput)
+    def openalex_cited_by(
+        work_id: str,
+        from_publication_date: str | None = None,
+        to_publication_date: str | None = None,
+        per_page: int | None = 200,
+        cursor: str | None = None,
+        mailto: str | None = None,
+    ) -> Mapping[str, Any]:
+        """List works that cite a given OpenAlex work ID, with optional date filtering."""
+
+        try:
+            result = openalex_client.cited_by(
+                work_id,
+                from_publication_date=from_publication_date,
+                to_publication_date=to_publication_date,
+                per_page=per_page,
+                cursor=cursor,
+                mailto=mailto,
+            )
+        except OpenAlexClientError as exc:
+            payload = OpenAlexCitedByOutput(status="error", message=str(exc))
+            return payload.model_dump()
+
+        payload = OpenAlexCitedByOutput(status="success", data=result)
+        return payload.model_dump()
+
+    return openalex_work, openalex_cited_by

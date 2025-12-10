@@ -29,6 +29,7 @@ from .tooling.crossref import CrossrefClient, CrossrefClientError
 from .tooling.dify import DifyKnowledgeBaseClient, DifyKnowledgeBaseError
 from .tooling.embeddings import OpenAICompatibleEmbeddingClient, OpenAIEmbeddingError
 from .tooling.llm import ModelPurpose
+from .tooling.openalex import OpenAlexClient, OpenAlexClientError
 from .tooling.tavily import TavilySearchClient, TavilySearchError
 
 app = typer.Typer(help="Tiangong AI Workspace CLI for managing local AI tooling.")
@@ -44,6 +45,8 @@ embeddings_app = typer.Typer(help="OpenAI-compatible embedding helpers.")
 app.add_typer(embeddings_app, name="embeddings")
 crossref_app = typer.Typer(help="Crossref metadata utilities.")
 app.add_typer(crossref_app, name="crossref")
+openalex_app = typer.Typer(help="OpenAlex metadata utilities.")
+app.add_typer(openalex_app, name="openalex")
 
 WORKFLOW_SUMMARIES = {
     DocumentWorkflowType.REPORT: "Business and technical reports with clear recommendations.",
@@ -251,6 +254,7 @@ def agents_run(
     no_dify: bool = typer.Option(False, "--no-dify", help="Disable Dify knowledge base tool."),
     no_document: bool = typer.Option(False, "--no-document", help="Disable document generation tool."),
     no_crossref: bool = typer.Option(False, "--no-crossref", help="Disable Crossref journal works tool."),
+    no_openalex: bool = typer.Option(False, "--no-openalex", help="Disable OpenAlex tools."),
     engine: str = typer.Option(
         "langgraph",
         "--engine",
@@ -269,6 +273,7 @@ def agents_run(
             include_dify_knowledge=not no_dify,
             include_document_agent=not no_document,
             include_crossref=not no_crossref,
+            include_openalex=not no_openalex,
             system_prompt=system_prompt,
             engine=engine,
         )
@@ -549,6 +554,73 @@ def research(
     if not json_output:
         typer.echo("")
         typer.echo("Top-level research result:")
+        typer.echo(_format_result(result.get("result")))
+
+
+@openalex_app.command("work")
+def openalex_work(
+    doi: str = typer.Argument(..., help="DOI to look up in OpenAlex (with or without https://doi.org/ prefix)."),
+    mailto: Optional[str] = typer.Option(None, "--mailto", help="Optional contact email forwarded to OpenAlex."),
+    json_output: bool = typer.Option(False, "--json", help="Emit a machine-readable JSON response."),
+) -> None:
+    """Look up an OpenAlex work record by DOI."""
+
+    try:
+        client = OpenAlexClient(mailto=mailto)
+        result = client.work_by_doi(doi if doi.lower().startswith("10.") else doi)
+    except OpenAlexClientError as exc:
+        response = WorkspaceResponse.error("OpenAlex work lookup failed.", errors=(str(exc),), source="openalex")
+        _emit_response(response, json_output)
+        raise typer.Exit(code=20)
+
+    response = WorkspaceResponse.ok(payload=result, message="OpenAlex work lookup completed.", source="openalex")
+    _emit_response(response, json_output)
+
+    if not json_output:
+        typer.echo("")
+        typer.echo("OpenAlex work:")
+        typer.echo(_format_result(result.get("result")))
+
+
+@openalex_app.command("cited-by")
+def openalex_cited_by(
+    work_id: str = typer.Argument(..., help="OpenAlex work ID (e.g. W2072484418)."),
+    from_publication_date: Optional[str] = typer.Option(None, "--from", "from_pub", help="Filter citing works published on/after this date (YYYY-MM-DD)."),
+    to_publication_date: Optional[str] = typer.Option(None, "--to", "to_pub", help="Filter citing works published on/before this date (YYYY-MM-DD)."),
+    per_page: Optional[int] = typer.Option(
+        200,
+        "--per-page",
+        min=1,
+        max=200,
+        help="Number of citing works per page (OpenAlex max 200).",
+    ),
+    cursor: Optional[str] = typer.Option(None, "--cursor", help="Cursor token for deep pagination (use '*' for first page)."),
+    mailto: Optional[str] = typer.Option(None, "--mailto", help="Optional contact email forwarded to OpenAlex."),
+    json_output: bool = typer.Option(False, "--json", help="Emit a machine-readable JSON response."),
+) -> None:
+    """List works citing a given OpenAlex work ID with optional date filtering."""
+
+    try:
+        client = OpenAlexClient(mailto=mailto)
+        result = client.cited_by(
+            work_id,
+            from_publication_date=from_publication_date,
+            to_publication_date=to_publication_date,
+            per_page=per_page,
+            cursor=cursor,
+        )
+    except OpenAlexClientError as exc:
+        response = WorkspaceResponse.error("OpenAlex cited-by lookup failed.", errors=(str(exc),), source="openalex")
+        _emit_response(response, json_output)
+        raise typer.Exit(code=21)
+
+    response = WorkspaceResponse.ok(payload=result, message="OpenAlex cited-by lookup completed.", source="openalex")
+    _emit_response(response, json_output)
+
+    if not json_output:
+        typer.echo("")
+        typer.echo(f"Cited-by count: {result.get('total_count')}")
+        typer.echo("OpenAlex response:")
         typer.echo(_format_result(result.get("result")))
 
 
