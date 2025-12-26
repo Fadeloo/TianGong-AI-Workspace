@@ -551,7 +551,6 @@ def gemini_deep_research(
         [],
         "--file-search-store",
         help="Attach File Search store names to expose private data to the agent.",
-        multiple=True,
     ),
     poll: bool = typer.Option(False, "--poll", help="Poll until the interaction completes."),
     poll_interval: float = typer.Option(
